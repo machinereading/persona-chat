@@ -1,0 +1,11 @@
+#folder
+save/
+logs/
+__pycache__/
+utils/__pycache__/
+.ipynb_checkpoints/
+
+#file
+screenlog.1
+Untitled1.ipynb
+Untitled2.ipynb

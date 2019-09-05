@@ -1,0 +1,15 @@
+.idea/*
+.ropeproject/*
+*__pycache__*
+checkpoints/*
+parameters/*
+ParlAI/*
+BPE example.ipynb
+parlai/
+screenlog.0
+screen_logs/
+projects/
+environment/
+datasets/
+.ipynb_checkpoints/
+data/

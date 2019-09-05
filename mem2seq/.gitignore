@@ -1,0 +1,9 @@
+save/
+*.pyc
+sftp-config.json
+.__pycache__/
+Untitled.ipynb
+bAbI Preprocessing.ipynb
+script.sh
+screen_logs/
+.ipynb_checkpoints/
