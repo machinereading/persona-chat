@@ -1,0 +1,17 @@
+.bash_history
+.bash_logout
+.bashrc
+.cache/
+.gitconfig
+.ipython/
+.jupyter/
+.keras/
+.local/
+.profile
+.python_history
+.rnd
+.vim/
+.viminfo
+.wget-hsts
+nltk_data/
+
