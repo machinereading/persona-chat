@@ -133,3 +133,9 @@ class CustomVocab:
         bpe_tokens = [self.id2token[id] for id in ids]
     
         return ''.join(bpe_tokens).replace(CustomVocab.we, ' ')
+    
+def merge_bpe(words):
+        for i, word in enumerate(words):
+            if word == '<eos>' and i < len(words) - 1:
+                words = words[:i+1]
+        return ''.join(words).replace(CustomVocab.we, ' ')

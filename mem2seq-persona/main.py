@@ -1,75 +1,54 @@
-import logging
 from tqdm import tqdm
 import torch
 from Mem2Seq import Mem2Seq
 from utils.preprocess import preprocess
-from utils.vocab import CustomVocab
+from utils.vocab import CustomVocab, merge_bpe
+from config import config
 
-def merge_bpe(words):
-        for i, word in enumerate(words):
-            if word == '<eos>' and i < len(words) - 1:
-                words = words[:i+1]
-        return ''.join(words).replace(CustomVocab.we, ' ')
+device = torch.device(config['device'])
+vocab, train_loader, valid_loader, test_loader, max_s, max_r = preprocess(config['vocab_path'], config['codes_path'], config['train_datasets'], config['valid_datasets'], config['test_datasets'], config['batch_size'], device)
 
-vocab_path = './parameters/bpe.vocab'
-codes_path = './parameters/bpe.code'
 
-train_datasets = ['./datasets/train_self_revised_no_cands.txt',
-                  './datasets/train_self_original_no_cands.txt']
-valid_datasets = ['./datasets/valid_self_revised_no_cands.txt']
-test_datasets = ['./datasets/valid_self_original_no_cands.txt']
+model = Mem2Seq(hidden_size=config['hdd'], n_layers=config['layers'], max_s=max_s, max_r=max_r, vocab=vocab, load_path=config['load_path'], save_path=config['save_path'], lr=config['lr'], dr=config['dr'], position=config['position'], device=device)
 
-batch_size = 32
-device = torch.device('cuda:0')
+print('Version {} - Training starts with model of {} layers, {} hdd, {} lr, {} dr, {} tr, {} clip, {} position and {} batch size'.format(config['version'], config['layers'], config['hdd'], config['lr'], config['dr'], config['tr'], config['clip'], config['position'], config['batch_size']))
 
-vocab, train_loader, valid_loader, test_loader, max_r = preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_datasets, batch_size, device)
-
-lr = 0.005
-hdd = 300
-pos = 512
-layer = 4
-dr = 0.2
-#path = 'save/HDD300POS512DR0.2L4lr0.005v2'
-path = None
-model = Mem2Seq(hidden_size=hdd, pos_size=pos, max_r=max_r, vocab=vocab, path=path,
-                lr=lr, n_layers=layer, dropout=dr, unk_mask=True, device=device)
 valid_iter = iter(valid_loader)
+decay_cnt = 0
+decay_num = 0
+loss_prev = float('inf')
 
-valid_cnt = 0
-valid_best = 0.0
-for epoch in range(1, 101):
-    logging.info("Epoch:{}".format(epoch))  
+for epoch in range(1, 1 + config['epochs']):  
     # Run the train function
     pbar = tqdm(enumerate(train_loader), total=len(train_loader))
     for i, data in pbar: 
-        model.train_batch(data[0], data[1], data[2], data[3], data[4], len(data[1]), 10.0, 0.5, i==0)
+        model.train_batch(data, config['clip'], config['tr'], i==0)
         pbar.set_description('<epoch {}> '.format(epoch) + model.print_loss())
-   
+       
+    loss, bleu, f1, perplexity, perplexity_m = model.evaluate(valid_loader)
+    print('BLEU: {:.3f}, F1: {:.3f}, Perplexity: {:.3f}, Masked Perplexity: {:.3f}'.format(bleu, f1, perplexity, perplexity_m))
+
     if epoch % 10 == 0:
+        model.save_model(config['version'], epoch)
         print('<samples>')
         data_dev = valid_iter.next()
-        words_batch = model.generate_batch(batch_size, data_dev[0], data_dev[1], data_dev[5])
-        for n in range(3):
+        words_batch, _, _, _, _ = model.generate_batch(data_dev)
+        for n in range(5):
             print('[targ]: ' + merge_bpe(data_dev[6][n]))
             print('[pred]: ' + merge_bpe(words_batch[n]))
             print()
     
-    valid_bleu = model.evaluate(valid_loader)
-
-    if valid_bleu >= valid_best - 0.05:
-        valid_best = valid_bleu
-        valid_cnt = 0
-        model.save_model(version=2)
+    if loss < loss_prev:
+        decay_cnt = 0
     else:
-        valid_cnt += 1
-
-    if valid_cnt == 5:
-        model.scheduler.step(model.loss)
-
-    if valid_cnt == 10:
-        print('early stopped!')
-        break
+        decay_cnt += 1
         
+    loss_prev = loss
 
-test_bleu = model.evaluate(test_loader)
-print('test bleu: {:.3f}'.format(test_bleu))
+    if decay_cnt == 5:
+        model.encoder_scheduler.step()
+        model.decoder_scheduler.step()
+        decay_num += 1
+        print('lr decayed')
+        
+print('Version {} - Training finished with {} epochs, {} lr decays'.format(config['version'], config['epochs'], decay_num))

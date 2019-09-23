@@ -11,7 +11,7 @@ def sequence_mask(sequence_length, device, max_len=None):
     return seq_range_expand < seq_length_expand
 
 
-def masked_cross_entropy(logits, target, length, device):
+def masked_cross_entropy(logits, target, length, device, gates=None):
     """
     Args:
         logits: A Variable containing a FloatTensor of size
@@ -30,16 +30,25 @@ def masked_cross_entropy(logits, target, length, device):
 
     # logits_flat: (batch * max_len, num_classes)
     logits_flat = logits.view(-1, logits.size(-1)) ## -1 means infered from other dimentions
+    
     # log_probs_flat: (batch * max_len, num_classes)
     log_probs_flat = functional.log_softmax(logits_flat,dim=1)
+    
     # target_flat: (batch * max_len, 1)
     target_flat = target.view(-1, 1)
+    
     # losses_flat: (batch * max_len, 1)
     losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
+    
     # losses: (batch, max_len)
     losses = losses_flat.view(*target.size())
     # mask: (batch, max_len)
     mask = sequence_mask(sequence_length=length, device=device, max_len=target.size(1))  
     losses = losses * mask.float()
+    
+    if gates:
+        gates = torch.tensor(gates, device=device)
+        losses = losses * gates.float()
+    
     loss = losses.sum() / length.float().sum()
     return loss

@@ -2,44 +2,43 @@ import torch
 import torch.nn as nn
 from torch.optim import lr_scheduler
 from torch import optim
-from utils.masked_cross_entropy import *
+from utils.masked_cross_entropy import sequence_mask, masked_cross_entropy
 import random
 import numpy as np
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-import matplotlib
+from utils.metric import f1_score, bleu
 import os
-import logging
+import math
 from tqdm import tqdm
 
 class Mem2Seq(nn.Module):
-    def __init__(self, hidden_size, pos_size, max_r, vocab, path, lr, n_layers, dropout, unk_mask, device):
+    def __init__(self, hidden_size, n_layers, max_s, max_r, vocab, load_path, save_path, lr, dr, position, device):
         super(Mem2Seq, self).__init__()
-        self.name = "Mem2Seq"
         self.input_size = len(vocab)
         self.output_size = len(vocab)
         self.hidden_size = hidden_size
-        self.pos_size = pos_size
         self.max_r = max_r ## max responce len        
         self.vocab = vocab
+        self.save_path = save_path
         self.lr = lr
         self.n_layers = n_layers
-        self.dropout = dropout
-        self.unk_mask = unk_mask
+        self.dropout = dr
+        self.position = position
         self.device = device
         
-        if path:
-            logging.info("MODEL {} LOADED".format(str(path)))
-            self.encoder = torch.load(str(path)+'/enc.th')
-            self.decoder = torch.load(str(path)+'/dec.th')
+        if load_path:
+            self.encoder = torch.load(str(load_path)+'/enc.th').to(device)
+            self.decoder = torch.load(str(load_path)+'/dec.th').to(device)
+            self.encoder.device = device
+            self.decoder.device = device
         else:
-            self.encoder = EncoderMemNN(vocab, hidden_size, pos_size, n_layers, self.dropout, self.unk_mask, device).to(device)
-            self.decoder = DecoderMemNN(vocab, hidden_size, pos_size, n_layers, self.dropout, self.unk_mask, device).to(device)
+            self.encoder = EncoderMemNN(vocab, hidden_size, max_s, n_layers, self.dropout, self.position, device).to(device)
+            self.decoder = DecoderMemNN(vocab, hidden_size, max_s, n_layers, self.dropout, self.position, device).to(device)
             
         # Initialize optimizers and criterion
         self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=lr)
         self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=lr)
-        self.scheduler = lr_scheduler.ReduceLROnPlateau(self.decoder_optimizer,mode='max',factor=0.5,patience=1,min_lr=1e-6, verbose=True)
-        self.criterion = nn.MSELoss()
+        self.encoder_scheduler = lr_scheduler.StepLR(self.encoder_optimizer, step_size=1, gamma=0.5)
+        self.decoder_scheduler = lr_scheduler.StepLR(self.decoder_optimizer, step_size=1, gamma=0.5)
         self.loss = 0
         self.loss_ptr = 0
         self.loss_vac = 0
@@ -53,18 +52,22 @@ class Mem2Seq(nn.Module):
         self.print_every += 1     
         return 'L:{:.2f}, VL:{:.2f}, PL:{:.2f}'.format(print_loss_avg, print_loss_vac, print_loss_ptr)
     
-    def save_model(self, version):
-        directory = 'save/' + 'HDD' + str(self.hidden_size) + 'POS' + str(self.pos_size) + 'DR' + str(self.dropout) + 'L' + str(self.n_layers) + 'lr' + str(self.lr) + 'v' + str(version)
+    def save_model(self, version, epoch):
+        directory = self.save_path + 'save/' + str(version) + '/' + str(epoch)
         
         if not os.path.exists(directory):
             os.makedirs(directory)
         torch.save(self.encoder, directory+'/enc.th')
         torch.save(self.decoder, directory+'/dec.th')
         
-    def train_batch(self, input_batches, input_lengths, target_batches, 
-                    target_lengths, target_index, batch_size, clip,
-                    teacher_forcing_ratio, reset):  
-
+    def train_batch(self, data, clip, teacher_forcing_ratio, reset):  
+        input_batches = data[0]
+        input_lengths = data[1]
+        target_batches = data[2]
+        target_lengths = data[3]
+        target_index = data[4]
+        batch_size = len(data[1])
+        
         if reset:
             self.loss = 0
             self.loss_ptr = 0
@@ -131,14 +134,21 @@ class Mem2Seq(nn.Module):
         # Clip gradient norms
         ec = torch.nn.utils.clip_grad_norm_(self.encoder.parameters(), clip)
         dc = torch.nn.utils.clip_grad_norm_(self.decoder.parameters(), clip)
+        
         # Update parameters with optimizers
-        self.encoder_optimizer.step()
-        self.decoder_optimizer.step()
         self.loss += loss.item()
         self.loss_ptr += loss_Ptr.item()
         self.loss_vac += loss_Vocab.item()
         
-    def generate_batch(self, batch_size, input_batches, input_lengths, src_plain):
+    def generate_batch(self, data):
+        input_batches = data[0]
+        input_lengths = data[1]
+        target_batches = data[2]
+        target_lengths = data[3]
+        target_index = data[4]
+        src_plain = data[5]
+        batch_size = len(data[1])
+        
         # Set to not-training mode to disable dropout
         self.encoder.train(False)
         self.decoder.train(False)
@@ -148,8 +158,13 @@ class Mem2Seq(nn.Module):
 
         # Prepare input and output variables
         decoder_input = torch.tensor([self.vocab.sos_id] * batch_size, dtype=torch.long, device=self.device)
+        
+        max_target_length = max(target_lengths)
+        all_decoder_outputs_vocab = torch.zeros(self.max_r, batch_size, self.output_size, device=self.device)
+        all_decoder_outputs_ptr = torch.zeros(self.max_r, batch_size, input_batches.size(0), device=self.device)
 
         decoded_words = [[] for i in range(batch_size)]
+        gates = [[] for i in range(batch_size)]
         
         p = [[w[0] for w in elm] for elm in src_plain]
         
@@ -166,50 +181,95 @@ class Mem2Seq(nn.Module):
             for i in range(batch_size):
                 if toppi[i].item() < len(p[i]) - 1:
                     decoded_words[i].append(p[i][toppi[i].item()])
+                    gates[i].append(1)
                 else:
                     ind = topvi[i].item()
                     decoded_words[i].append(self.vocab.id2token[ind])
+                    gates[i].append(0)
+                    
+        #Loss calculation
+        loss_Vocab = masked_cross_entropy(
+            all_decoder_outputs_vocab[:max_target_length].transpose(0, 1).contiguous(), # -> batch x seq
+            target_batches.transpose(0, 1).contiguous(), # -> batch x seq
+            target_lengths,
+            device=self.device
+        )
+        loss_Ptr = masked_cross_entropy(
+            all_decoder_outputs_ptr[:max_target_length].transpose(0, 1).contiguous(), # -> batch x seq
+            target_index.transpose(0, 1).contiguous(), # -> batch x seq
+            target_lengths,
+            device=self.device
+        )
+        loss_Vocab_masked = masked_cross_entropy(
+            all_decoder_outputs_vocab[:max_target_length].transpose(0, 1).contiguous(), # -> batch x seq
+            target_batches.transpose(0, 1).contiguous(), # -> batch x seq
+            target_lengths,
+            device=self.device,
+            gates=[[int(not g) for g in gs][:max_target_length] for gs in gates]
+        )
+        loss_Ptr_masked = masked_cross_entropy(
+            all_decoder_outputs_ptr[:max_target_length].transpose(0, 1).contiguous(), # -> batch x seq
+            target_index.transpose(0, 1).contiguous(), # -> batch x seq
+            target_lengths,
+            device=self.device,
+            gates=[gs[:max_target_length] for gs in gates]
+        )
 
         # Set back to training mode
         self.encoder.train(True)
         self.decoder.train(True)
         
-        return decoded_words
+        return decoded_words, loss_Vocab, loss_Ptr, loss_Vocab_masked, loss_Ptr_masked
 
 
     def evaluate(self, dev):
-        logging.info("STARTING EVALUATION")
-        cc = SmoothingFunction()
-        bleu = 0.0
+        f1 = 0.0
+        b = 0.0
+        l_v = 0.0
+        l_p = 0.0
+        l_v_m = 0.0
+        l_p_m = 0.0
         len_total = 0
         pbar = tqdm(enumerate(dev), total=len(dev))
         for _, data_dev in pbar: 
-            words_batch = self.generate_batch(len(data_dev[1]), data_dev[0], data_dev[1], data_dev[5])
-            for j, words in enumerate(words_batch):
+            w_batch, l_v_batch, l_p_batch, l_v_m_batch, l_p_m_batch = self.generate_batch(data_dev)
+            for j, words in enumerate(w_batch):
                 for i, word in enumerate(words):
                     if word == '<eos>' and i < len(words) - 1:
                         words = words[:i+1]
                         break
                 if len(words) < 1:
                     continue
-                bleu += sentence_bleu([data_dev[6][j]], words, smoothing_function=cc.method4)
-            len_total += len(words_batch)
-            pbar.set_description('BLEU: {:.3f}'.format(bleu / len_total))
+                b += bleu(words, data_dev[6][j]) * len(w_batch)
+                f1 += f1_score(words, data_dev[6][j]) * len(w_batch)
+                
+            len_total += len(w_batch)
+            l_v += l_v_batch * len(w_batch)
+            l_p += l_p_batch * len(w_batch)
+            l_v_m += l_v_m_batch * len(w_batch)
+            l_p_m += l_p_m_batch * len(w_batch)
+            
+            pbar.set_description('TL: {:.3f}, VL: {:.3f}, PL: {:.3f}, VML: {:.3f}, PML: {:.3f}'.format((l_v + l_p) / len_total, l_v / len_total, l_p / len_total, l_v_m / len_total, l_p_m / len_total))
+            
+        perplexity = math.exp((l_v + l_p) / len_total)
+        perplexity_m = math.exp((l_v_m + l_p_m) / len_total)
         
-        return bleu / len_total
+        return (l_v + l_p) / len_total, b / len_total, f1 / len_total, perplexity, perplexity_m
 
 
 class EncoderMemNN(nn.Module):
-    def __init__(self, vocab, embedding_dim, pos_embedding_dim, hop, dropout, unk_mask, device):
+    def __init__(self, vocab, embedding_dim, max_s, hop, dropout, position, device):
         super(EncoderMemNN, self).__init__()
         self.num_vocab = len(vocab)
         self.max_hops = hop
         self.embedding_dim = embedding_dim
         self.dropout = dropout
-        self.unk_mask = unk_mask
+        self.position = position
         self.pad_id = vocab.pad_id
         
-        self.pos_embedding = nn.Embedding(pos_embedding_dim + 1, embedding_dim, padding_idx=self.pad_id)
+        if position:
+            self.pos_embedding = PositionalEncoder(embedding_dim, max_s)
+            
         for hop in range(self.max_hops+1):
             C = nn.Embedding(self.num_vocab, embedding_dim, padding_idx=self.pad_id)
             C.weight.data.normal_(0, 0.1)
@@ -227,17 +287,15 @@ class EncoderMemNN(nn.Module):
         story = story.transpose(0, 1)
         
         # Dropout.
-        if self.unk_mask and self.training:
+        if self.training:
             ones = np.ones(story.size())
             rand_mask = np.random.binomial([np.ones((story.size(0), story.size(1)))], 1-self.dropout)[0]
             ones[:, :, 0] = ones[:, :, 0] * rand_mask
             story = story * torch.tensor(ones, dtype=torch.long, device=self.device)
         
         # Positional embedding.
-        padding_mask = story[:, :, 0].eq(self.pad_id)
-        positions = torch.cumsum(~padding_mask, dim=-1, dtype=torch.long)
-        positions.masked_fill_(padding_mask, self.pad_id)
-        embed_pos = self.pos_embedding(positions)
+        if self.position:
+            embed_pos = self.pos_embedding(story)
         
         u = [self.get_state(story.size(0))]
         for hop in range(self.max_hops):
@@ -245,7 +303,8 @@ class EncoderMemNN(nn.Module):
             embed_A = self.C[hop](story.view(story.size(0), -1)) # b * (m * s) * e
             embed_A = embed_A.view(story.size() + (embed_A.size(-1), )) # b * m * s * e
             m_A = torch.sum(embed_A, 2).squeeze(2) # b * m * e
-            m_A = m_A + embed_pos
+            if self.position and hop == 0:
+                m_A = m_A + embed_pos
             
             # Attention.
             u_temp = u[-1].unsqueeze(1).expand_as(m_A)
@@ -255,7 +314,6 @@ class EncoderMemNN(nn.Module):
             embed_C = self.C[hop+1](story.view(story.size(0), -1)) # b * (m * s) * e
             embed_C = embed_C.view(story.size() + (embed_C.size(-1), )) # b * m * s * e
             m_C = torch.sum(embed_C, 2).squeeze(2) # b * m * e
-            m_C = m_C + embed_pos
             
             # Weighted sum.
             prob = prob.unsqueeze(2).expand_as(m_C)
@@ -266,16 +324,18 @@ class EncoderMemNN(nn.Module):
         return u_k
 
 class DecoderMemNN(nn.Module):
-    def __init__(self, vocab, embedding_dim, pos_embedding_dim, hop, dropout, unk_mask, device):
+    def __init__(self, vocab, embedding_dim, max_s, hop, dropout, position, device):
         super(DecoderMemNN, self).__init__()
         self.num_vocab = len(vocab)
         self.max_hops = hop
         self.embedding_dim = embedding_dim
         self.dropout = dropout
-        self.unk_mask = unk_mask
+        self.position = position
         self.pad_id = vocab.pad_id
         
-        #self.pos_embedding = nn.Embedding(pos_embedding_dim + 1, embedding_dim, padding_idx=self.pad_id)
+        if position:
+            self.pos_embedding = PositionalEncoder(embedding_dim, max_s)
+        
         for hop in range(self.max_hops+1):
             C = nn.Embedding(self.num_vocab, embedding_dim, padding_idx=self.pad_id)
             C.weight.data.normal_(0, 0.1)
@@ -283,7 +343,7 @@ class DecoderMemNN(nn.Module):
         self.C = AttrProxy(self, "C_")
         self.softmax = nn.Softmax(dim=1)
         self.W = nn.Linear(embedding_dim, 1)
-        self.W1 = nn.Linear(2*embedding_dim,self.num_vocab)
+        self.W1 = nn.Linear(2*embedding_dim, self.num_vocab)
         self.gru = nn.GRU(embedding_dim, embedding_dim)
         self.device = device
 
@@ -291,24 +351,23 @@ class DecoderMemNN(nn.Module):
         story = story.transpose(0, 1)
         
         # Dropout.
-        if self.unk_mask and self.training:
+        if self.training:
             ones = np.ones(story.size())
             rand_mask = np.random.binomial([np.ones((story.size(0), story.size(1)))], 1-self.dropout)[0]
             ones[:, :, 0] = ones[:, :, 0] * rand_mask
             story = story * torch.tensor(ones, dtype=torch.long, device=self.device)
             
         # Positional embedding.
-        #padding_mask = story[:, :, 0].eq(self.pad_id)
-        #positions = torch.cumsum(~padding_mask, dim=-1, dtype=torch.long)
-        #positions.masked_fill_(padding_mask, self.pad_id)
-        #embed_pos = self.pos_embedding(positions)
+        if self.position:
+            embed_pos = self.pos_embedding(story)
             
         self.m_story = []
         for hop in range(self.max_hops+1):
             embed_A = self.C[hop](story.view(story.size(0), -1)) # b * (m * s) * e
             embed_A = embed_A.view(story.size() + (embed_A.size(-1), )) # b * m * s * e
             m_A = torch.sum(embed_A, 2).squeeze(2) # b * m * e
-            #m_A = m_A + embed_pos
+            if self.position and hop == 0:
+                m_A = m_A + embed_pos
             self.m_story.append(m_A)
 
     def ptrMemDecoder(self, enc_query, last_hidden):
@@ -326,7 +385,7 @@ class DecoderMemNN(nn.Module):
             temp.append(prob_)
             prob = prob_.unsqueeze(2).expand_as(m_C)
             o_k  = torch.sum(m_C*prob, 1)
-            if (hop==0):
+            if hop == 0:
                 p_vocab = self.W1(torch.cat((u[0], o_k), 1))
             u_k = u[-1] + o_k
             u.append(u_k)
@@ -346,3 +405,37 @@ class AttrProxy(object):
 
     def __getitem__(self, i):
         return getattr(self.module, self.prefix + str(i))
+
+    
+class PositionalEncoder(torch.nn.Module):
+    def __init__(self, emb_dim, max_len):
+        """
+        Modified Sinusoidal Positional Encoder from
+        https://github.com/kaushalshetty/Positional-Encoding/blob/master/encoder.py
+        """    
+        super(PositionalEncoder,self).__init__()
+        n_position = max_len + 1
+        self.position_enc = torch.nn.Embedding(n_position, emb_dim, padding_idx=0)
+        self.position_enc.weight.data = self.position_encoding_init(n_position, emb_dim)
+        
+    def position_encoding_init(self, n_position, emb_dim):
+        ''' Init the sinusoid position encoding table '''
+        position_enc = np.array([
+            [pos / np.power(10000, 2 * (j // 2) / emb_dim) for j in range(emb_dim)]
+            if pos != 0 else np.zeros(emb_dim) for pos in range(n_position)])
+
+        position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2]) # apply sin on 0th,2nd,4th...emb_dim
+        position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2]) # apply cos on 1st,3rd,5th...emb_dim
+        return torch.from_numpy(position_enc).type(torch.FloatTensor)    
+    
+    def get_absolute_pos(self, story):
+        padding_mask = story[:, :, 0].eq(self.pad_id)
+        positions = torch.cumsum(~padding_mask, dim=-1, dtype=torch.long)
+        positions.masked_fill_(padding_mask, self.pad_id)
+        return positions
+        
+    def forward(self, story):
+        word_pos = self.get_absolute_pos(story)
+        word_pos_encoded = self.position_enc(word_pos)
+        return word_pos_encoded
+        

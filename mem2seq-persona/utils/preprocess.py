@@ -136,25 +136,37 @@ class Collator:
 def preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_datasets, batch_size, device):
     vocab = CustomVocab.from_files(vocab_path, codes_path)
     
-    train_dataset = CustomDataset(train_datasets, vocab)
-    valid_dataset = CustomDataset(valid_datasets, vocab)
-    test_dataset = CustomDataset(test_datasets, vocab)
+    train_loader = None
+    valid_loader = None
+    test_loader = None
     
+    max_s = 0
     max_r = 0
-    for data in train_dataset:
-        if max_r <= len(data[1]):
-            max_r = len(data[1])
-    for data in valid_dataset:
-        if max_r <= len(data[1]):
-            max_r = len(data[1])
-    
     collator = Collator(device, vocab.pad_id)
-
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True,
-                                               collate_fn=collator)
-    valid_loader = torch.utils.data.DataLoader(dataset=valid_dataset, batch_size=batch_size, shuffle=False,
-                                               collate_fn=collator)
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False,
-                                              collate_fn=collator)
     
-    return vocab, train_loader, valid_loader, test_loader, max_r
+    if train_datasets:
+        train_dataset = CustomDataset(train_datasets, vocab)
+        for data in train_dataset:
+            if max_s < len(data[0]):
+                max_s = len(data[0])
+            if max_r < len(data[1]):
+                max_r = len(data[1])
+        train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True,
+                                           collate_fn=collator)
+                
+    if valid_datasets:
+        valid_dataset = CustomDataset(valid_datasets, vocab)
+        for data in valid_dataset:
+            if max_s < len(data[0]):
+                max_s = len(data[0])
+            if max_r < len(data[1]):
+                max_r = len(data[1])
+        valid_loader = torch.utils.data.DataLoader(dataset=valid_dataset, batch_size=batch_size, shuffle=False,
+                                           collate_fn=collator)
+        
+    if test_datasets:
+        test_dataset = CustomDataset(test_datasets, vocab)
+        test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=False,
+                                                  collate_fn=collator)
+    
+    return vocab, train_loader, valid_loader, test_loader, max_s, max_r
