@@ -13,6 +13,9 @@
 'load_path': None,
 'save_path': '/data/kdgyun425/mem2seq-persona/save/'
 
+* train failed.
+
+
 <version 1>
 'batch_size': 200,
 'device': 'cuda:1',
@@ -27,3 +30,108 @@
 'epochs': 100,
 'load_path': None,
 'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* train failed.
+* changed decay criterion
+
+
+<version 3>
+'batch_size': 200,
+'device': 'cuda:0',
+'hdd': 300,
+'layers': 3,
+'lr': 0.001,
+'dr': 0.2,
+'tr': 0.5,
+'position': True,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* train failed.
+* Skipped version 2.
+
+
+<version 4>
+'batch_size': 200,
+'device': 'cuda:1',
+'hdd': 300,
+'layers': 3,
+'lr': 0.001,
+'dr': 0.2,
+'tr': 0.5,
+'position': False,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* train failed.
+
+
+<version 5>
+'batch_size': 200,
+'device': 'cuda:0',
+'hdd': 300,
+'layers': 3,
+'lr': 0.005,
+'dr': 0.2,
+'tr': 0.5,
+'position': True,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* Overfitting (valid loss explodes)
+
+
+<version 6>
+'batch_size': 200,
+'device': 'cuda:1',
+'hdd': 300,
+'layers': 3,
+'lr': 0.0006,
+'dr': 0.2,
+'tr': 0.5,
+'position': False,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* train failed.
+
+
+<version 7>
+'batch_size': 200,
+'device': 'cuda:0',
+'hdd': 300,
+'layers': 3,
+'lr': 0.005,
+'dr': 0.2,
+'tr': 0.5,
+'temp': 0.1,
+'position': False,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+<version 8>
+'batch_size': 200,
+'device': 'cuda:1',
+'hdd': 300,
+'layers': 3,
+'lr': 0.005,
+'dr': 0.2,
+'tr': 0.5,
+'temp': 1.0,
+'position': False,
+'clip': 10.0,
+'epochs': 100,
+'load_path': None,
+'save_path': '/data/kdgyun425/mem2seq-persona/save/'
+
+* added temperature in vocabulary distribution during generation

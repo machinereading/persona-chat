@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import lr_scheduler
 from torch import optim
 from utils.masked_cross_entropy import sequence_mask, masked_cross_entropy
@@ -9,6 +10,7 @@ from utils.metric import f1_score, bleu
 import os
 import math
 from tqdm import tqdm
+from torch.distributions import Categorical
 
 class Mem2Seq(nn.Module):
     def __init__(self, hidden_size, n_layers, max_s, max_r, vocab, load_path, save_path, lr, dr, position, device):
@@ -35,25 +37,27 @@ class Mem2Seq(nn.Module):
             self.decoder = DecoderMemNN(vocab, hidden_size, max_s, n_layers, self.dropout, self.position, device).to(device)
             
         # Initialize optimizers and criterion
-        self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=lr)
-        self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=lr)
-        self.encoder_scheduler = lr_scheduler.StepLR(self.encoder_optimizer, step_size=1, gamma=0.5)
-        self.decoder_scheduler = lr_scheduler.StepLR(self.decoder_optimizer, step_size=1, gamma=0.5)
+        #self.encoder_optimizer = optim.Adam(self.encoder.parameters(), lr=lr)
+        #self.decoder_optimizer = optim.Adam(self.decoder.parameters(), lr=lr)
+        #self.encoder_scheduler = lr_scheduler.StepLR(self.encoder_optimizer, step_size=1, gamma=0.5)
+        #self.decoder_scheduler = lr_scheduler.StepLR(self.decoder_optimizer, step_size=1, gamma=0.5)
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.scheduler = lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=0.5)
         self.loss = 0
         self.loss_ptr = 0
-        self.loss_vac = 0
+        self.loss_vocab = 0
         self.print_every = 1
         self.batch_size = 0
 
     def print_loss(self):    
         print_loss_avg = self.loss / self.print_every
         print_loss_ptr =  self.loss_ptr / self.print_every
-        print_loss_vac =  self.loss_vac / self.print_every
+        print_loss_vocab =  self.loss_vocab / self.print_every
         self.print_every += 1     
-        return 'L:{:.2f}, VL:{:.2f}, PL:{:.2f}'.format(print_loss_avg, print_loss_vac, print_loss_ptr)
+        return 'L:{:.2f}, VL:{:.2f}, PL:{:.2f}'.format(print_loss_avg, print_loss_vocab, print_loss_ptr)
     
     def save_model(self, version, epoch):
-        directory = self.save_path + 'save/' + str(version) + '/' + str(epoch)
+        directory = self.save_path + str(version) + '/' + str(epoch)
         
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -71,13 +75,14 @@ class Mem2Seq(nn.Module):
         if reset:
             self.loss = 0
             self.loss_ptr = 0
-            self.loss_vac = 0
+            self.loss_vocab = 0
             self.print_every = 1
 
         self.batch_size = batch_size
         # Zero gradients of both optimizers
-        self.encoder_optimizer.zero_grad()
-        self.decoder_optimizer.zero_grad()
+        #self.encoder_optimizer.zero_grad()
+        #self.decoder_optimizer.zero_grad()
+        self.optimizer.zero_grad()
         loss_Vocab, loss_Ptr= 0, 0
 
         # Run words through encoder
@@ -97,23 +102,24 @@ class Mem2Seq(nn.Module):
         if use_teacher_forcing:    
             # Run through decoder one time step at a time
             for t in range(max_target_length):
-                decoder_ptr, decoder_vacab, decoder_hidden  = self.decoder.ptrMemDecoder(decoder_input, decoder_hidden)
-                all_decoder_outputs_vocab[t] = decoder_vacab
+                decoder_ptr, decoder_vocab, decoder_hidden  = self.decoder.ptrMemDecoder(decoder_input, decoder_hidden)
+                all_decoder_outputs_vocab[t] = decoder_vocab
                 all_decoder_outputs_ptr[t] = decoder_ptr
                 decoder_input = target_batches[t] # Chosen word is next input
         else:
             for t in range(max_target_length):
-                decoder_ptr, decoder_vacab, decoder_hidden = self.decoder.ptrMemDecoder(decoder_input, decoder_hidden)
+                decoder_ptr, decoder_vocab, decoder_hidden = self.decoder.ptrMemDecoder(decoder_input, decoder_hidden)
                 _, toppi = decoder_ptr.data.topk(1)
-                _, topvi = decoder_vacab.data.topk(1)
-                all_decoder_outputs_vocab[t] = decoder_vacab
+                _, topvi = decoder_vocab.data.topk(1)
+                all_decoder_outputs_vocab[t] = decoder_vocab
                 all_decoder_outputs_ptr[t] = decoder_ptr
                 ## get the correspective word in input
                 top_ptr_i = torch.gather(input_batches[:, :, 0], 0, toppi.view(1, -1)).transpose(0, 1)
-                next_in = [top_ptr_i[i].item() if (toppi[i].item() < input_lengths[i]-1) else topvi[i].item() for i in range(batch_size)]
+                #next_in = [top_ptr_i[i].item() if (toppi[i].item() < input_lengths[i]-1) else topvi[i].item() for i in range(batch_size)]
+                next_in = [top_ptr_i[i] if (toppi[i].item() < input_lengths[i]-1) else topvi[i] for i in range(batch_size)]
 
                 decoder_input = torch.tensor(next_in, dtype=torch.long, device=self.device) # Chosen word is next input
-                  
+                    
         #Loss calculation and backpropagation
         loss_Vocab = masked_cross_entropy(
             all_decoder_outputs_vocab.transpose(0, 1).contiguous(), # -> batch x seq
@@ -136,11 +142,14 @@ class Mem2Seq(nn.Module):
         dc = torch.nn.utils.clip_grad_norm_(self.decoder.parameters(), clip)
         
         # Update parameters with optimizers
+        #self.encoder_optimizer.step()
+        #self.decoder_optimizer.step()
+        self.optimizer.step()
         self.loss += loss.item()
         self.loss_ptr += loss_Ptr.item()
-        self.loss_vac += loss_Vocab.item()
+        self.loss_vocab += loss_Vocab.item()
         
-    def generate_batch(self, data):
+    def generate_batch(self, data, temp=0):
         input_batches = data[0]
         input_lengths = data[1]
         target_batches = data[2]
@@ -175,17 +184,27 @@ class Mem2Seq(nn.Module):
             _, toppi = decoder_ptr.data.topk(1)
             top_ptr_i = torch.gather(input_batches[:, :, 0], 0, toppi.view(1, -1)).transpose(0, 1)
             
-            next_in = [top_ptr_i[i].item() if (toppi[i].item() < input_lengths[i]-1) else topvi[i].item() for i in range(batch_size)]
-            decoder_input = torch.tensor(next_in, dtype=torch.long, device=self.device) # Chosen word is next input
+            #next_in = [top_ptr_i[i].item() if (toppi[i].item() < input_lengths[i]-1) else topvi[i].item() for i in range(batch_size)]
+            next_in = []
 
             for i in range(batch_size):
                 if toppi[i].item() < len(p[i]) - 1:
                     decoded_words[i].append(p[i][toppi[i].item()])
+                    next_in.append(top_ptr_i[i])
                     gates[i].append(1)
                 else:
-                    ind = topvi[i].item()
+                    if temp == 0:
+                        ind = topvi[i].item()
+                    else:
+                        ind = Categorical(F.softmax(decoder_vocab[i] / temp, dim=0)).sample().item()
                     decoded_words[i].append(self.vocab.id2token[ind])
+                    next_in.append(ind)
                     gates[i].append(0)
+            
+            decoder_input = torch.tensor(next_in, dtype=torch.long, device=self.device) # Chosen word is next input
+            
+            all_decoder_outputs_vocab[t] = decoder_vocab
+            all_decoder_outputs_ptr[t] = decoder_ptr
                     
         #Loss calculation
         loss_Vocab = masked_cross_entropy(
@@ -219,10 +238,10 @@ class Mem2Seq(nn.Module):
         self.encoder.train(True)
         self.decoder.train(True)
         
-        return decoded_words, loss_Vocab, loss_Ptr, loss_Vocab_masked, loss_Ptr_masked
+        return decoded_words, loss_Vocab.item(), loss_Ptr.item(), loss_Vocab_masked.item(), loss_Ptr_masked.item()
 
 
-    def evaluate(self, dev):
+    def evaluate(self, dev, temp=0):
         f1 = 0.0
         b = 0.0
         l_v = 0.0
@@ -232,7 +251,7 @@ class Mem2Seq(nn.Module):
         len_total = 0
         pbar = tqdm(enumerate(dev), total=len(dev))
         for _, data_dev in pbar: 
-            w_batch, l_v_batch, l_p_batch, l_v_m_batch, l_p_m_batch = self.generate_batch(data_dev)
+            w_batch, l_v_batch, l_p_batch, l_v_m_batch, l_p_m_batch = self.generate_batch(data_dev, temp)
             for j, words in enumerate(w_batch):
                 for i, word in enumerate(words):
                     if word == '<eos>' and i < len(words) - 1:
@@ -240,8 +259,8 @@ class Mem2Seq(nn.Module):
                         break
                 if len(words) < 1:
                     continue
-                b += bleu(words, data_dev[6][j]) * len(w_batch)
-                f1 += f1_score(words, data_dev[6][j]) * len(w_batch)
+                b += bleu(words, data_dev[6][j])
+                f1 += f1_score(words, data_dev[6][j])
                 
             len_total += len(w_batch)
             l_v += l_v_batch * len(w_batch)
@@ -268,7 +287,7 @@ class EncoderMemNN(nn.Module):
         self.pad_id = vocab.pad_id
         
         if position:
-            self.pos_embedding = PositionalEncoder(embedding_dim, max_s)
+            self.pos_embedding = PositionalEncoder(embedding_dim, max_s, self.pad_id)
             
         for hop in range(self.max_hops+1):
             C = nn.Embedding(self.num_vocab, embedding_dim, padding_idx=self.pad_id)
@@ -334,7 +353,7 @@ class DecoderMemNN(nn.Module):
         self.pad_id = vocab.pad_id
         
         if position:
-            self.pos_embedding = PositionalEncoder(embedding_dim, max_s)
+            self.pos_embedding = PositionalEncoder(embedding_dim, max_s, self.pad_id)
         
         for hop in range(self.max_hops+1):
             C = nn.Embedding(self.num_vocab, embedding_dim, padding_idx=self.pad_id)
@@ -408,12 +427,13 @@ class AttrProxy(object):
 
     
 class PositionalEncoder(torch.nn.Module):
-    def __init__(self, emb_dim, max_len):
+    def __init__(self, emb_dim, max_len, pad_id):
         """
         Modified Sinusoidal Positional Encoder from
         https://github.com/kaushalshetty/Positional-Encoding/blob/master/encoder.py
         """    
         super(PositionalEncoder,self).__init__()
+        self.pad_id = pad_id
         n_position = max_len + 1
         self.position_enc = torch.nn.Embedding(n_position, emb_dim, padding_idx=0)
         self.position_enc.weight.data = self.position_encoding_init(n_position, emb_dim)
@@ -431,7 +451,7 @@ class PositionalEncoder(torch.nn.Module):
     def get_absolute_pos(self, story):
         padding_mask = story[:, :, 0].eq(self.pad_id)
         positions = torch.cumsum(~padding_mask, dim=-1, dtype=torch.long)
-        positions.masked_fill_(padding_mask, self.pad_id)
+        positions.masked_fill_(padding_mask, 0)
         return positions
         
     def forward(self, story):

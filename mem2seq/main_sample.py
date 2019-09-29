@@ -32,10 +32,10 @@ else:
         print("You need to provide the --dataset information")
 
 # Configure models
-directory = args['path'].split("/")
-task = directory[2].split('HDD')[0]
-HDD = directory[2].split('HDD')[1].split('BSZ')[0]
-L = directory[2].split('L')[1].split('lr')[0]
+directory = args['path'].split("/")[-1]
+task = directory.split('HDD')[0]
+HDD = directory.split('HDD')[1].split('BSZ')[0]
+L = directory.split('L')[1].split('lr')[0]
 
 train, dev, test, testOOV, lang, max_len, max_r = prepare_data_seq(task, batch_size=int(args['batch']))
 
@@ -65,7 +65,6 @@ else:
 
 dev_iter = iter(dev)
 data_dev = dev_iter.next()
-data_dev = dev_iter.next()
 
 if args['dataset']=='kvr':
     words = model.evaluate_batch(len(data_dev[1]),data_dev[0],data_dev[1],
@@ -79,7 +78,7 @@ def print_query(seq_list):
     for seq in seq_list:
         if seq[1] == '$u' or seq[1] == '$s':
             dialog.append(seq[0])
-    print('query: ', ' '.join(dialog))
+    print('story: ', ' '.join(dialog))
     
 def print_answer(seq_list, i):
     answer = []
@@ -90,7 +89,7 @@ def print_answer(seq_list, i):
             break
     print('answer:', ' '.join(answer))
 
-for i in range(4):
+for i in range(len(data_dev[6])):
     print_query(data_dev[6][i])
     print('target:', data_dev[7][i])
     print_answer(words, i)

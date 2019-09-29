@@ -133,7 +133,7 @@ class Collator:
         return src_seqs, src_lengths, trg_seqs, trg_lengths, ind_seqs, src_plain, trg_plain
     
 
-def preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_datasets, batch_size, device):
+def preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_datasets, train_batch_size, valid_batch_size, device):
     vocab = CustomVocab.from_files(vocab_path, codes_path)
     
     train_loader = None
@@ -151,7 +151,7 @@ def preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_data
                 max_s = len(data[0])
             if max_r < len(data[1]):
                 max_r = len(data[1])
-        train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True,
+        train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=train_batch_size, shuffle=True,
                                            collate_fn=collator)
                 
     if valid_datasets:
@@ -161,7 +161,7 @@ def preprocess(vocab_path, codes_path, train_datasets, valid_datasets, test_data
                 max_s = len(data[0])
             if max_r < len(data[1]):
                 max_r = len(data[1])
-        valid_loader = torch.utils.data.DataLoader(dataset=valid_dataset, batch_size=batch_size, shuffle=False,
+        valid_loader = torch.utils.data.DataLoader(dataset=valid_dataset, batch_size=valid_batch_size, shuffle=False,
                                            collate_fn=collator)
         
     if test_datasets:
