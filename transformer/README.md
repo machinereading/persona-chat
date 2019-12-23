@@ -41,7 +41,7 @@ train:
 ```
 python train.py
 ```
-training code loads model checkpoint from trainer_config.trained_checkpoint_path (trainer_config.default_checkpoint_path) which is defined in config.py if trainer_config.load_last is True (if trainer_config.load_default is also True), otherwise it initializes weights with OpenAI GPT pretrained model.
+train.py loads model checkpoint from trainer_config.trained_checkpoint_path (trainer_config.default_checkpoint_path) which is defined in config.py if trainer_config.load_last is True (if trainer_config.load_default is also True), otherwise it initializes weights with OpenAI GPT pretrained model.
 
 Also, users can modify trainer_config in config.py to set number of epochs, batch size, learning rate, label smoothing parameter, gradient clipping, seed and loss coefficients.
 
@@ -50,4 +50,4 @@ eval:
 python eval_f1.py
 python eval_hits.py
 ```
-evaluation code loads model checkpoint from model_config.checkpoint_path which is defined in config.py
+eval_f1.py and eval_hits.py loads model checkpoint from model_config.checkpoint_path which is defined in config.py
