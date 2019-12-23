@@ -1,3 +1,5 @@
+## This is a clone of https://github.com/atselousov/transformer_chatbot
+
 # ConvAI2
 ## Team: Lost in Conversation /2
 
