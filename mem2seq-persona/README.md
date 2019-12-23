@@ -1,3 +1,5 @@
+## This is a clone of https://github.com/HLTCHKUST/Mem2Seq
+
 # Mem2Seq 
 **Mem2Seq: Effectively Incorporating Knowledge Bases into End-to-End Task-Oriented Dialog Systems** (ACL 2018). Andrea Madotto, Chien-Sheng Wu, Pascale Fung. Accepted at ***ACL 2018***. [[PDF]](https://aclanthology.coli.uni-saarland.de/papers/P18-1136/p18-1136) in ACL anthology. [Andrea Madotto](http://andreamad8.github.io/) and [Chien-Sheng Wu](https://jasonwu0731.github.io/) contribute equally at this work.  
 
