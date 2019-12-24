@@ -2,9 +2,9 @@
 
 ### Train Command
 Following command trains model `n_epochs` epochs, initialized with pretrained OpenAI-GPT, and saves checkpoint in `log_dir`.
-'''
+```
 python train.py --n_epochs 20 --model_checkpoint openai-gpt --log_dir runs/run_e20
-'''
+```
 
 ### Hyper-Parameter Settings
 In our re-implementation, we used following hyper-parameters.
