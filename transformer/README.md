@@ -4,11 +4,11 @@
 ```
 python train.py
 ```
-To train from scratch (this initializes weights with pretrained OpenAI GPT), set load_last = False of trainer_config in config.py
-To train from some checkpoint, set load_last = True and trained_checkpoint_path = `the path` of trainer_config in config.py
-The trainer loads datasets from paths in train_datasets (valid_datasets) of trainer_config in config.py
+To train from scratch (this initializes weights with pretrained OpenAI GPT), set `load_last = False` of trainer_config in `config.py`
+To train from some checkpoint, set `load_last = True` and `trained_checkpoint_path = <the path>` of trainer_config in `config.py`
+The trainer loads datasets from paths in `train_datasets (valid_datasets)` of trainer_config in `config.py`
 
-We used following hyper-parameter settings. (Modify this in config.py)
+We used following hyper-parameter settings. (Modify this in `config.py`)
 ```
 n_epochs: 80
 batch_size: 160
@@ -28,4 +28,4 @@ test_period: 1
 python eval_f1.py
 python eval_hits.py
 ```
-To evaluate learned model, modify checkpoint_path of model_config in config.py to the saved checkpoint.
+To evaluate learned model, modify `checkpoint_path` of model_config in `config.py` to the saved checkpoint.
