@@ -8,7 +8,7 @@ To train from scratch (this initializes weights with pretrained OpenAI GPT), set
 To train from some checkpoint, set `load_last = True` and `trained_checkpoint_path = <the path>` of trainer_config in `config.py`
 The trainer loads datasets from paths in `train_datasets (valid_datasets)` of trainer_config in `config.py`
 
-We used following hyper-parameter settings. (Modify this in `config.py`)
+We used following hyper-parameter settings in our re-implementation. (Modify this in `config.py`)
 ```
 n_epochs: 80
 batch_size: 160
