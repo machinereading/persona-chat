@@ -22,7 +22,7 @@ n_epochs: 20
 personality_permutations: 1
 ```
 
-### Evaluaion Command
+### Evaluation Command
 Each commands evaluates learned model using F1-score, hits@1 and perplexity.
 '''
 python eval.py --eval_type f1 --model_checkpoint runs/run_e20
