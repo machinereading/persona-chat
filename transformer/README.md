@@ -1,55 +1,31 @@
 ## This is a clone of https://github.com/atselousov/transformer_chatbot
 
-# ConvAI2
-## Team: Lost in Conversation /2
-
-NeurIPS 2018 [presentation](docs/slides.pdf).
-
-### Links
-
-BPE vocabulary: https://www.dropbox.com/s/n2jbjyq32x6jgr6/parameters.zip?dl=1
-
-Model checkpoint file: https://www.dropbox.com/s/cs6zd9yntn6ixea/last_checkpoint?dl=1
-
-### Team
-
-* Alexander Tselousov aleksander.tselousov@yandex.ru
-* Sergey Golovanov sergey.golovanov@neuromation.io
-
-### How to run
-
-Unzip BPE vocabulary files into `./parametes` folder and save checkpoint into 
-`./checkpoints` folder or use scripts (see below). 
-
-The easiest way to prepare environment is to run script `prepare_environment.sh`.
-After that docker container with retrieval server must be run in demon mode and 
-image with `transformer_chatbot` must be built. Run scripts from the root folder of this repository.
-
-Retrieval server can be run with script `run_retrieval_servet.sh`. 
-Server do not need the internet connection for its work, for connection with 
-`transformer_chatbot` port `9200` is used (containers must be in the same docker network).   
-
-After preparations metrics can be evaluated with corresponding `docker_*.sh` scripts or
-`*.py` scripts can be used during interactive container run. 
-
-Usage of docker container for `transformer_chatbot` is not necessary, but 
-retrieval server must always be run for correct work of `transformer_chatbot`.
-
-List of used python modules is in `requirements.txt`. Also `pytorch=0.4.1` is used.
-
-### Example Commands
-
-train:
+### Train Commands
 ```
 python train.py
 ```
-train.py loads model checkpoint from trainer_config.trained_checkpoint_path (trainer_config.default_checkpoint_path) which is defined in config.py if trainer_config.load_last is True (if trainer_config.load_default is also True), otherwise it initializes weights with OpenAI GPT pretrained model.
+To train from scratch (this initializes weights with pretrained OpenAI GPT), set load_last = False of trainer_config in config.py
+To train from some checkpoint, set load_last = True and trained_checkpoint_path = `the path` of trainer_config in config.py
+The trainer loads datasets from paths in train_datasets (valid_datasets) of trainer_config in config.py
 
-Also, users can modify trainer_config in config.py to set number of epochs, batch size, learning rate, label smoothing parameter, gradient clipping, seed and loss coefficients.
+We used following hyper-parameter settings. (Modify this in config.py)
+```
+n_epochs: 80
+batch_size: 160
+batch_split: 64
+lr: 6.25e-5
+lr_warmup: 16000
+lm_weight: 0.5
+risk_weight: 0
+n_jobs: 4
+label_smoothing: 0.1
+clip_grad: None
+test_period: 1
+```
 
-eval:
+### Evaluation Commands
 ```
 python eval_f1.py
 python eval_hits.py
 ```
-eval_f1.py and eval_hits.py loads model checkpoint from model_config.checkpoint_path which is defined in config.py
+To evaluate learned model, modify checkpoint_path of model_config in config.py to the saved checkpoint.
