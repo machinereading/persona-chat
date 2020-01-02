@@ -24,18 +24,18 @@ personality_permutations: 1
 
 ### Evaluation Command
 Each commands evaluates learned model using F1-score, hits@1 and perplexity.
-'''
+```
 python eval.py --eval_type f1 --model_checkpoint runs/run_e20
 python eval.py --eval_type hits@1 --model_checkpoint runs/run_e20
 python eval.py --eval_type ppl --model_checkpoint runs/run_e20
-'''
+```
 
 ### Sample Command
 We implemented sampling script to sample utterances from learned model.
 It creates `n_samples` samples, iterating from the beginning of the dataset with step `sample_term`.
-'''
+```
 python sample.py --model_checkpoint runs/run_e20 --n_samples 10 --sample_term 1
-'''
+```
 
 ### Interaction Command
 This command is to conversate interactively with the learned model.
