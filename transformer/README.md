@@ -1,5 +1,6 @@
 ## This is a clone of https://github.com/atselousov/transformer_chatbot
 
+This project use Python3!
 Before use scripts, you should first do following things:
 
 1. Download BPE vocabulary files and a checkpoint file
@@ -7,20 +8,23 @@ Before use scripts, you should first do following things:
 bash envirionment/prepare_environment.sh
 ```
 
-2. Download datasets: use the `build` function in `parial/tasks/convai2/build.py`
+2. Download datasets
+```
+python build.py
+```
 
 3. Reinstall spacy and Download spacy-en
 ```
-pip3 uninstall spacy
-pip3 install spacy=2.0.0
+pip uninstall spacy
+pip install spacy=2.0.0
 wget https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-2.0.0/en_core_web_sm-2.0.0.tar.gz
-pip3 install --user en_core_web_sm-2.0.0.tar.gz
-python3 -m spacy link en_core_web_sm en
+pip install --user en_core_web_sm-2.0.0.tar.gz
+python -m spacy link en_core_web_sm en
 ```
 
 4. Install dependencies
 ```
-pip3 install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Train Commands
