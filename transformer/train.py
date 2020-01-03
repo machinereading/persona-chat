@@ -83,7 +83,7 @@ def main():
     def save_func(epoch):
         #torch.save(model_trainer.state_dict(), trainer_config.last_checkpoint_path)
         if epoch % 20 == 0:
-            save_path = os.path.join(trainer_config.checkpoint_path, 'epoch_{}'.format(epoch))
+            save_path = os.path.join(trainer_config.trained_checkpoint_path, 'epoch_{}'.format(epoch))
             torch.save(model_trainer.state_dict(), save_path)
 
     def sample_text_func(epoch):
