@@ -27,6 +27,14 @@ python -m spacy link en_core_web_sm en
 pip install -r requirements.txt
 ```
 
+5. Download pretrained OpenAI-GPT weights
+```
+git clone https://github.com/openai/finetune-transformer-lm
+mv finetune-transformer-lm/models/* parameters/*
+mv parameters/params_shapes.json parameters/parameters_shapes.json
+rm -rf finetune-transformer-lm
+```
+
 ### Train Commands
 ```
 python train.py
